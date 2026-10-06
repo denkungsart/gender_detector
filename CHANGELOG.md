@@ -1,5 +1,10 @@
 # Change Log
 
+## Unreleased
+
+### Changes
+ * Reduced the memory used by the name dictionary from ~25 MB to ~6.5 MB by storing names and their country frequencies in a few compact strings instead of one Hash and String per name
+
 ## 2.1.0 (2025-10-26)
 
 ### Changes

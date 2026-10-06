@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'gender_detector/version'
+require 'gender_detector/name_index'
 
 require 'active_support/core_ext/string/multibyte' if Gem::Version.new(RUBY_VERSION) < Gem::Version.new('2.4.0')
 
@@ -36,6 +37,11 @@ class GenderDetector
     'US' => :usa, 'UZ' => :the_stans, 'VN' => :vietnam
   }.freeze
 
+  GENDERS = %i[male mostly_male female mostly_female andy].freeze
+
+  # Each record is a gender (index into GENDERS) followed by one frequency byte per country.
+  RECORD_SIZE = 1 + COUNTRIES.size
+
   def initialize(opts = {})
     relpath = '../gender_detector/data/nam_dict.txt'
     opts = {
@@ -50,12 +56,7 @@ class GenderDetector
   end
 
   def parse(fname)
-    @names = {}
-    File.open(fname, 'r:iso8859-1:utf-8') do |f|
-      f.each_line do |line|
-        eat_name_line line
-      end
-    end
+    @names = NameIndex.new(fname, case_sensitive: @case_sensitive)
   end
 
   def knows_country?(country)
@@ -64,7 +65,7 @@ class GenderDetector
 
   def name_exists?(name)
     name = name.downcase unless @case_sensitive
-    @names.key?(name) ? name : false
+    @names.include?(name) ? name : false
   end
 
   def get_gender(name, country = nil)
@@ -74,7 +75,7 @@ class GenderDetector
       @unknown_value
     elsif country.nil?
       most_popular_gender(name) do |country_values|
-        country_values.chars.reject { |l| l.strip == '' }.length
+        country_values.count('^ ')
       end
     elsif COUNTRIES.include?(country)
       most_popular_gender_in_country(name, country)
@@ -95,53 +96,25 @@ class GenderDetector
   def most_popular_gender_in_country(name, country)
     index = COUNTRIES.index(country)
     most_popular_gender(name) do |country_values|
-      country_values[index].ord
-    end
-  end
-
-  def eat_name_line(line)
-    return if line.start_with?('#', '=')
-
-    parts = line.split.reject { |p| p.strip == '' }
-    country_values = line.slice(30, line.length)
-    name = @case_sensitive ? parts[1] : parts[1].downcase
-    set_name_gender(name, parts[0], country_values)
-  end
-
-  def set_name_gender(name, gender, country_values)
-    case gender
-    when 'M' then set(name, :male, country_values)
-    when '1M', '?M' then set(name, :mostly_male, country_values)
-    when 'F' then set(name, :female, country_values)
-    when '1F', '?F' then set(name, :mostly_female, country_values)
-    when '?' then set(name, :andy, country_values)
-    else raise "Not sure what to do with a gender of #{parts[0]}"
+      country_values.getbyte(index)
     end
   end
 
   def most_popular_gender(name)
-    return @unknown_value unless @names.key?(name)
+    records = @names[name]
+    return @unknown_value if records.nil?
 
     max = 0
-    best = @names[name].keys.first
-    @names[name].each do |gender, country_values|
-      count = yield country_values
+    best = nil
+    0.step(records.bytesize - 1, RECORD_SIZE) do |offset|
+      gender = GENDERS[records.getbyte(offset)]
+      best ||= gender
+      count = yield records.byteslice(offset + 1, COUNTRIES.size)
       if count > max
         max = count
         best = gender
       end
     end
     best
-  end
-
-  def set(name, gender, country_values)
-    if name.include? '+'
-      ['', '-', ' '].each do |replacement|
-        set name.gsub('+', replacement), gender, country_values
-      end
-    else
-      @names[name] ||= {}
-      @names[name][gender] = country_values
-    end
   end
 end

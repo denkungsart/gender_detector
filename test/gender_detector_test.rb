@@ -46,4 +46,10 @@ class GenderDetectorTest < Minitest::Test
     assert_equal :male, d.get_gender('Bob')
     assert_equal :female, d.get_gender('ÁLFRÚN')
   end
+
+  def test_name_with_variable_separator
+    ['AbdelAziz', 'Abdel-Aziz', 'Abdel Aziz'].each do |name|
+      assert_equal :male, @d.get_gender(name)
+    end
+  end
 end
